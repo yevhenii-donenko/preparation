@@ -75,6 +75,27 @@ window.CATALOG = {
         ]
       },
       {
+        id: "platform-extras",
+        titles: { ru: "Платформа: глубже", uk: "Платформа: глибше", en: "Platform: deeper" },
+        descriptions: {
+          ru: "JPMS, I/O/NIO, сеть, логирование, regex — то, что спрашивают на Senior.",
+          uk: "JPMS, I/O/NIO, мережа, логування, regex — що питають на Senior.",
+          en: "JPMS, I/O/NIO, networking, logging, regex — common Senior questions."
+        },
+        topics: [
+          { id: "modules-jpms", file: "topics/17-modules-jpms.md", level: "advanced", minutes: 35,
+            titles: { ru: "Модули (JPMS)",           uk: "Модулі (JPMS)",            en: "Java Modules (JPMS)" } },
+          { id: "io-nio",       file: "topics/18-io-nio.md",       level: "advanced", minutes: 35,
+            titles: { ru: "I/O и NIO",                uk: "I/O та NIO",                en: "I/O and NIO" } },
+          { id: "networking",   file: "topics/19-networking.md",   level: "advanced", minutes: 35,
+            titles: { ru: "Networking и HttpClient", uk: "Networking та HttpClient", en: "Networking and HttpClient" } },
+          { id: "logging",      file: "topics/20-logging.md",      level: "intermediate", minutes: 30,
+            titles: { ru: "Логирование",              uk: "Логування",                 en: "Logging" } },
+          { id: "regex",        file: "topics/21-regex.md",        level: "intermediate", minutes: 25,
+            titles: { ru: "Регулярные выражения",     uk: "Регулярні вирази",          en: "Regular expressions" } }
+        ]
+      },
+      {
         id: "frameworks",
         titles: { ru: "Фреймворки и данные", uk: "Фреймворки та дані", en: "Frameworks & data" },
         descriptions: {
