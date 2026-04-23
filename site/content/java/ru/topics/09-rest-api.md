@@ -716,3 +716,193 @@ query {
 - Как правильно реализовать pagination на больших данных? (cursor-based.)
 - Когда GraphQL уместен, когда нет?
 
+---
+
+# Глубокие объяснения: REST — не просто HTTP
+
+REST — это не "любой HTTP API", это архитектурный стиль с конкретными принципами. Большинство "REST" API на деле — просто RPC поверх HTTP. Понимание реальной модели помогает проектировать API, которые живут годами.
+
+## Что такое настоящий REST
+
+Roy Fielding в 2000-м описал **шесть constraints** REST. Практически применимы три главных:
+
+1. **Resource-oriented.** Каждая "вещь" имеет URL. Операции — стандартные HTTP-методы. `POST /transfer` — это RPC, не REST. `POST /transfers` (создать transfer resource) — REST.
+2. **Stateless.** Каждый запрос содержит всё, что нужно для его обработки. Сервер не хранит client session между запросами. Это позволяет scaling: любой instance может обработать любой запрос. Session cookie хранится на стороне клиента, аутентификация — в каждом запросе (JWT, Bearer token).
+3. **HATEOAS.** Ответ содержит links на связанные ресурсы и доступные действия. Клиент двигается по API, как по web-страницам. Это редко реализуется в полной мере, но идея — "API self-describing".
+
+На практике 90% "REST" API отказываются от HATEOAS (через OpenAPI спецификацию вместо links), иногда отказываются от stateless (server-side sessions). Это ок, но называйте честно — "HTTP API" или "resource-based API".
+
+## HTTP методы — семантика и идемпотентность
+
+| Метод | Idempotent | Safe | Кэшируем |
+|---|---|---|---|
+| GET | ✅ | ✅ | ✅ |
+| HEAD | ✅ | ✅ | ✅ |
+| PUT | ✅ | ❌ | ❌ |
+| DELETE | ✅ | ❌ | ❌ |
+| PATCH | ❌ | ❌ | ❌ |
+| POST | ❌ | ❌ | ❌ (обычно) |
+
+**Safe** — не меняет состояние сервера. **Idempotent** — повторение даёт тот же результат.
+
+**Почему важно.** Прокси, CDN, браузеры, retries — все они опираются на эту семантику. Если вы сделаете GET, который меняет данные, retries при сетевой ошибке будут изменять данные многократно. Если PUT неидемпотентен — retries ломают state.
+
+**PATCH vs PUT.** PUT — полная замена ресурса (надо передать весь объект). PATCH — partial update (только изменения). Популярны форматы для PATCH: JSON Patch (RFC 6902) — массив операций, JSON Merge Patch (RFC 7396) — объект с полями для изменения. Обычно PATCH через JSON Merge — проще реализовать.
+
+## Статус-коды — больше, чем 200/404/500
+
+Навык, которого не хватает многим: осознанно использовать более 5 кодов. Не бросайте `500` на всё.
+
+**2xx Success.**
+- **200 OK** — успех, тело ответа содержит данные.
+- **201 Created** — создан новый ресурс. Ответ должен содержать `Location: /resources/{id}`.
+- **202 Accepted** — запрос принят, но ещё не обработан (async). Ответ с `Location` на endpoint для проверки статуса.
+- **204 No Content** — успех, но тела нет (`DELETE`, `PUT`).
+
+**3xx Redirects.**
+- **301 Moved Permanently** — ресурс навсегда переехал. Кешируется. SEO.
+- **302/303/307** — разные виды temporary redirect. 303 — после POST перенаправить на GET (Post/Redirect/Get pattern).
+- **304 Not Modified** — для кеша (с If-None-Match / If-Modified-Since).
+
+**4xx Client errors.**
+- **400 Bad Request** — невалидный запрос (syntax, отсутствующие поля).
+- **401 Unauthorized** — **неаутентифицирован**. Приходи с credentials.
+- **403 Forbidden** — аутентифицирован, но **не авторизован** для этого действия.
+- **404 Not Found** — ресурс не существует.
+- **409 Conflict** — конфликт с текущим состоянием (оптимистический lock, duplicate).
+- **422 Unprocessable Entity** — синтаксически валидно, но semantic/business-validation failed.
+- **429 Too Many Requests** — rate limit. Должен быть `Retry-After` header.
+
+**5xx Server errors.**
+- **500 Internal Server Error** — необработанное исключение.
+- **502 Bad Gateway** — upstream сервис вернул мусор.
+- **503 Service Unavailable** — временно недоступен (deploy, overload). `Retry-After`.
+- **504 Gateway Timeout** — upstream не ответил вовремя.
+
+**Правило 401 vs 403.** Часто путают. 401 = "не понимаю, кто ты". 403 = "понимаю, но тебе нельзя". Практика: если endpoint требует auth и user не прислал токен — 401. Если прислал, но роль недостаточна — 403.
+
+## Versioning — способы и компромиссы
+
+API меняется, клиенты — нет. Решений несколько, каждое с trade-off.
+
+**URL versioning** (`/api/v1/users`, `/api/v2/users`). Плюсы: очевидно, легко тестировать curl, разные версии в логах. Минусы: нарушает REST (один ресурс — два URL). **Наиболее распространён.**
+
+**Header versioning** (`Accept: application/vnd.acme.v2+json`). Плюсы: URL остаются стабильными, API "чище". Минусы: сложно тестировать, кеширование капризнее. Используется GitHub, Stripe.
+
+**Query parameter** (`/users?version=2`). Гибрид. Reasonable для внутренних API, не рекомендуется для внешних.
+
+**Никогда не делать: versionless API с breaking changes.** Путь в ад.
+
+**Семантический подход.** Делайте **non-breaking changes** как можно дольше — добавляйте поля, сохраняйте старые. Каждое breaking change = новая major-версия. Поддерживайте N-1 версии хотя бы 12 месяцев.
+
+## Pagination — cursor vs offset
+
+**Offset-based** (`GET /items?offset=1000&limit=20`). Просто в реализации. Проблемы:
+- **O(offset) в БД.** Запрос с offset 100000 читает 100020 строк и выкидывает первые 100000.
+- **Нестабильно при изменениях.** Между запросами страниц кто-то вставил — вы увидите дубликаты или пропустите строки.
+
+**Cursor-based** (`GET /items?after=abc123&limit=20`). Cursor — opaque токен, обычно encoded last item's (id, timestamp). Запрос в БД: `WHERE (timestamp, id) > (last_ts, last_id) ORDER BY timestamp, id LIMIT 20`. Плюсы: O(1) через индекс, стабильно при изменениях. Минус: нельзя "прыгнуть" на N-ю страницу (только next/prev).
+
+**Для больших данных — всегда cursor.** Для админок с навигацией "страница 5" — offset ок.
+
+## Cache — что такое ETag и как им пользоваться
+
+Большинство REST-ответов могут быть закешированы, но разработчики игнорируют эту возможность. Базовый набор:
+
+**`Cache-Control`.**
+- `public, max-age=3600` — кешировать на 1 час любым cache (CDN, браузер).
+- `private, max-age=60` — только в браузере пользователя.
+- `no-cache` — **НЕ "не кешировать"!** Это означает "обязательно валидировать через conditional request (ETag/If-Modified-Since)".
+- `no-store` — **вот это** означает "не кешировать вообще".
+
+**ETag и conditional requests.** Сервер в ответе шлёт `ETag: "abc123"` — хеш или версия ресурса. Клиент в следующем запросе: `If-None-Match: "abc123"`. Если ресурс не изменился — сервер отвечает `304 Not Modified` без тела. Экономит трафик огромно.
+
+**Optimistic concurrency через ETag.** Клиент делает PUT с `If-Match: "abc123"`. Если ресурс изменился на сервере (ETag другой) — `412 Precondition Failed`. Клиент должен перечитать и ретраить. Это защищает от lost updates при параллельных изменениях.
+
+## JWT — мощь и ловушки
+
+JWT (JSON Web Token) — это три base64-encoded части, разделённые точками: `header.payload.signature`. В payload — claims (iss, sub, exp, custom data). Signature — HMAC или RSA от header+payload с секретом/ключом.
+
+**Почему популярен.** Stateless — сервер не хранит session. Подпись доказывает, что токен выдан и не менялся. Claims можно читать без обращения к БД.
+
+**Главные ошибки.**
+
+1. **Не проверять expiration.** Библиотеки обычно проверяют, но я видел код, где `exp` не проверяется — токен "вечный".
+2. **Хранить в localStorage.** Доступно для XSS-скриптов. Используйте **httpOnly cookie** или **session storage** (для SPA — трейд-офф).
+3. **Хранить secrets в payload.** Payload — base64, **не зашифрован**. Читается всеми. Для шифрования нужен JWE (JSON Web Encryption).
+4. **Невозможность отозвать.** JWT валиден до `exp`. Если нужен logout или user заблокирован — только blacklist (tokenId в Redis) или короткое expiration + refresh token. Это убивает главное преимущество "stateless".
+5. **Алгоритм "none".** Исторический баг: некоторые парсеры принимали `alg: none` (без подписи). Всегда whitelist алгоритмов на сервере.
+
+**Opaque token — часто лучше.** Короткая случайная строка в cookie. Сервер хранит mapping в Redis. Плюсы: мгновенный revoke, не утекает информация через claims. Минус: нужен lookup на каждый запрос. Для 90% B2C-приложений — лучший выбор.
+
+## CORS — преграда, которая путает
+
+CORS (Cross-Origin Resource Sharing) — механизм браузера, регулирующий, может ли JavaScript с одного origin делать запросы к другому. Появился, чтобы защитить от CSRF/XSS: by default `example.com` не может читать ответы от `api.other.com`.
+
+**Как работает.**
+1. Браузер перед "небезопасным" запросом (non-GET/HEAD, custom headers) шлёт **preflight** — `OPTIONS /endpoint` с заголовками `Origin`, `Access-Control-Request-Method`.
+2. Сервер отвечает `Access-Control-Allow-Origin: https://example.com`, `Access-Control-Allow-Methods: POST, PUT`. Если origin не разрешён — браузер блокирует реальный запрос.
+3. После preflight — реальный запрос с полными заголовками CORS.
+
+**Ключевое понимание.** CORS — **клиентская проверка**, не серверная. Сервер может отдать данные — браузер их **прячет** от JS. Curl или Postman CORS игнорируют (они не браузеры).
+
+**Частые проблемы.**
+- `Access-Control-Allow-Origin: *` + `Access-Control-Allow-Credentials: true` — запрещено. Либо конкретный origin, либо без credentials.
+- Preflight кешируется через `Access-Control-Max-Age`. В dev часто забывают, и каждое изменение требует полный перезапрос.
+- За CDN/nginx часто теряются preflight-ответы — надо явно пропускать OPTIONS.
+
+## gRPC vs REST — когда что
+
+**REST** — текст (JSON), человекочитаемо, работает везде, кешируется, хорошо для публичных API.
+
+**gRPC** — бинарный (Protobuf), schema-first, HTTP/2 multiplexing, streaming из коробки. Идеален для **service-to-service** внутри data center.
+
+**Когда gRPC:**
+- Микросервисы, где latency критична (схема — protobuf, ~5-10x быстрее JSON).
+- Нужен streaming (long-lived connection, push из сервера).
+- Строгий контракт через `.proto` (autocomplete, генерация клиентов на любом языке).
+
+**Когда REST:**
+- Публичный API для третьих лиц.
+- Webhook/callbacks (входящие запросы от разнородных клиентов).
+- Отладка через curl/Postman обязательна.
+- Кеширование на CDN.
+
+В Netflix, Uber и Google типичная архитектура: **REST на edge** (browser → API gateway), **gRPC внутри** (gateway → microservices).
+
+## Rate limiting — как защитить backend
+
+Без rate limit'а один клиент может легко положить ваш сервис. Три подхода:
+
+**Token bucket.** У клиента "ведро" с N токенами, пополняется по R токенов/сек. Каждый запрос "съедает" токен. Пусто — 429. Позволяет burst'ы (сколько token в ведре), но ограничивает sustained rate. Реализуется в Redis через INCR + expire.
+
+**Sliding window.** Смотрим количество запросов за последние 60 секунд. Точно, но требует больше памяти (timestamp каждого запроса).
+
+**Leaky bucket.** Как token bucket, но смягчает burst'ы — очередь с постоянной скоростью обработки.
+
+**Ключи для rate limit.** По user ID (аутентифицированные), по IP (неаутентифицированные), по endpoint (защита дорогих операций отдельно), по API key (tiers: free/paid).
+
+**Стандартные headers в ответе:**
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 45
+X-RateLimit-Reset: 1677600000
+Retry-After: 60       (при 429)
+```
+
+## GraphQL — правильное применение
+
+GraphQL решает конкретную проблему: **under-fetching и over-fetching в REST**. Клиенту нужны 3 поля из user + 2 из каждого order — в REST делает 2 запроса и получает 40 полей лишних. В GraphQL — один запрос с точной спецификацией.
+
+**Когда оправдан:**
+- **Mobile app** с ограниченным bandwidth.
+- **Много типов клиентов** с разными требованиями к данным.
+- **Complex graph of entities** с связями.
+
+**Когда НЕ оправдан:**
+- Простые CRUD-операции.
+- Публичный API с неизвестными клиентами (GraphQL сложнее кешировать и rate-limit'ить).
+- Нет команды на поддержку resolver'ов, N+1 проблем, schema evolution.
+
+GraphQL не заменяет REST — это инструмент для специфичных случаев. Большинство внутренних API всё ещё лучше делать REST.
+
