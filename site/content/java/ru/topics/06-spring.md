@@ -1019,3 +1019,173 @@ class OrderMetrics {
 - Какие scopes есть у бинов?
 - Как реализовать запуск кода при старте приложения? (`ApplicationRunner`, `CommandLineRunner`, `@EventListener(ApplicationReadyEvent.class)`.)
 
+---
+
+# Глубокие объяснения: магия Spring раскрыта
+
+Spring — это 90% "магии" и 10% реальной логики. Если понять, как работают эти 10%, "магия" превращается в понятную инженерную конструкцию. Разберём главные механизмы, которые люди используют ежедневно, но редко заглядывают внутрь.
+
+## Что такое Application Context и почему он важен
+
+`ApplicationContext` — это **контейнер**, который хранит все ваши бины и знает, как они между собой связаны. Но внутри он устроен гораздо интереснее, чем "словарь имя → объект".
+
+При старте приложения Spring проходит примерно такой путь:
+1. **Сканирование** классов (по `@ComponentScan` или вручную регистрируемых `@Configuration`).
+2. **Создание `BeanDefinition`** — **метаданных** о бине, но ещё не самого бина: имя, тип, scope, зависимости, init/destroy методы. На этом этапе объекты не создаются.
+3. **BeanFactoryPostProcessor** — хуки, которые могут **изменить метаданные** (например, `PropertyPlaceholderConfigurer` подставляет значения `${...}`).
+4. **Создание бинов** в правильном порядке (топологическая сортировка по зависимостям).
+5. **BeanPostProcessor** — хуки, которые оборачивают бин в прокси (AOP, `@Transactional`, `@Async`).
+6. **Init methods** — `@PostConstruct`, `InitializingBean.afterPropertiesSet`, `init-method`.
+7. **Lifecycle callbacks** — `ApplicationRunner`, `CommandLineRunner`, `ApplicationReadyEvent`.
+
+**Почему важно отличать "метаданные" от "бинов".** Когда вы делаете `@Bean(name = "x")` и `@Primary` — вы влияете на метаданные. BeanFactoryPostProcessor может их поменять до того, как бин будет создан. После создания — поздно.
+
+## `@ComponentScan` и как Spring находит ваши классы
+
+Когда вы пишете `@SpringBootApplication`, один из эффектов — `@ComponentScan` с базовым пакетом = пакет класса, на котором стоит аннотация. Это **неочевидное правило**: если ваш main-класс в `com.acme.Main`, то сканирование пойдёт только в `com.acme.**`.
+
+**Как работает сканирование.** Spring открывает jar/classpath, читает каждый `.class` файл и ищет аннотации класса без загрузки самого класса в JVM (через ASM). Это быстро и не грузит в ClassLoader классы, которые не нужны. Нашли `@Component` / `@Service` / `@Repository` / `@Controller` — создаём `BeanDefinition`.
+
+**Когда `@ComponentScan` не находит класс:**
+- Класс в другом пакете, не включённом в scan (частая ошибка в multi-module проектах).
+- Включён `@ConditionalOnMissingBean` / `@ConditionalOnProperty` — условие не выполнено.
+- Фильтр исключения (`excludeFilters`).
+
+**Альтернативы сканированию:**
+- `@Import(Config.class)` — явный импорт.
+- `@ImportSelector` — программный выбор классов для импорта (так работают `@Enable*` аннотации).
+- `META-INF/spring.factories` (Spring Boot 2.x) / `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` (Boot 3+) — стартеры.
+
+## DI: как Spring выбирает, какой бин инжектить
+
+Автоматический выбор бина для `@Autowired` — одна из самых коварных тем. Правило такое:
+
+1. **По типу.** Ищется бин, чей тип совместим с типом поля.
+2. **Если один — используется.**
+3. **Если несколько** — применяется цепочка правил:
+   - **`@Qualifier("name")`** — явный выбор.
+   - **`@Primary`** — среди кандидатов ищется primary.
+   - **Имя поля совпадает с именем бина** — совпадение (default bean name = имя класса с маленькой буквы).
+   - **Иначе — `NoUniqueBeanDefinitionException`.**
+
+**Генерики учитываются.** `List<UserProvider>` получит все бины типа `UserProvider`. `List<User>` НЕ получит коллекцию User из бинов — это не генерик тип бина.
+
+**Constructor injection — почему всегда лучше.**
+```java
+@Service
+@RequiredArgsConstructor     // Lombok
+public class OrderService {
+    private final UserService userService;
+    private final PaymentGateway paymentGateway;
+}
+```
+Причины:
+1. **Immutability**: `final` поля — нельзя случайно переустановить.
+2. **Гарантия инициализации**: объект невозможно создать без всех зависимостей.
+3. **Проще тестировать**: в тесте передаёте моки прямо в конструктор, без Reflection и `@InjectMocks`.
+4. **Видна циклическая зависимость**: при старте будет `BeanCurrentlyInCreationException`, а не тихое получение null или half-initialized объекта.
+
+Field injection (`@Autowired` над полем) хуже по всем пунктам и в современном Spring deprecated de facto.
+
+## AOP и proxies — почему `@Transactional` не всегда срабатывает
+
+`@Transactional` — классическая аннотация, но её поведение часто удивляет. Секрет — в **прокси**.
+
+**Как это работает внутри.** Когда вы регистрируете `@Transactional`-бин, Spring не меняет ваш класс. Он создаёт **прокси** — либо JDK dynamic proxy (если бин реализует интерфейс), либо CGLIB-подкласс. Прокси перехватывает вызовы методов и перед вашим методом открывает транзакцию, после — коммит/роллбек.
+
+**Первая ловушка — self-invocation.** Прокси перехватывает вызовы **извне**. Если один метод бина вызывает другой **через `this`** — прокси не участвует, и `@Transactional` на втором методе игнорируется:
+```java
+@Service
+public class UserService {
+    public void a() {
+        b();   // вызов через this, прокси не знает!
+    }
+    @Transactional
+    public void b() { ... }
+}
+```
+Решения: вынести в другой бин, инжектить сам себя (ugly), использовать `AopContext.currentProxy()` (нужна конфигурация).
+
+**Вторая ловушка — private/protected методы.** JDK proxy работает только с public методами интерфейса. CGLIB может перехватывать protected, но не private. Поэтому `@Transactional` **не работает** на private-методе.
+
+**Третья ловушка — checked exceptions.** По умолчанию `@Transactional` откатывает только при `RuntimeException` и `Error`. Если бросаете свой checked exception, транзакция **коммитится** несмотря на "ошибку". Чтобы исправить: `@Transactional(rollbackFor = Exception.class)`.
+
+**Почему JDK vs CGLIB.** JDK proxy требует интерфейс (генерирует его реализацию). CGLIB — наследуется от класса (не требует интерфейса). CGLIB тяжелее, требует non-final класс и non-final методы. Начиная с Spring 6 default — CGLIB при отсутствии интерфейса.
+
+## Spring Boot Auto-configuration — как оно "просто работает"
+
+Когда вы добавляете `spring-boot-starter-data-jpa`, вам автоматически конфигурится EntityManager, TransactionManager, DataSource — без единой строки XML или Java-конфига. Это не магия, а хорошо организованная машинерия.
+
+**Основа — условные конфигурации.** Spring Boot поставляет сотни `@Configuration` классов. Каждый обёрнут условиями:
+- `@ConditionalOnClass(DataSource.class)` — активируется, только если DataSource на classpath.
+- `@ConditionalOnMissingBean(DataSource.class)` — активируется, только если пользователь не определил свой.
+- `@ConditionalOnProperty("spring.datasource.url")` — активируется, если property задан.
+
+При старте Spring Boot проходит список всех auto-configuration классов (из `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` в jar'е starter'а), проверяет условия, активирует подходящие.
+
+**Как узнать, что именно включилось.** Запустите с `--debug` — Boot выведет отчёт "Positive matches" (что включено и почему) и "Negative matches" (что не включено).
+
+**Своя auto-configuration для библиотеки:**
+1. Создать `@AutoConfiguration` класс с вашими бинами.
+2. Добавить `@ConditionalOnClass` / `@ConditionalOnMissingBean` чтобы не конфликтовать.
+3. Зарегистрировать в `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
+4. Пользователь добавляет ваш jar в classpath — всё работает без `@EnableMyLib`.
+
+## Configuration properties: два мира
+
+Spring имеет два способа читать конфигурацию — `@Value` и `@ConfigurationProperties` — и они разные по философии.
+
+**`@Value("${app.name}")`.** Простое внедрение одного значения. Поддерживает SpEL (`@Value("#{systemProperties['user.home']}")`), условия, default значения (`@Value("${app.port:8080}")`). Минус — каждое значение отдельно, нет валидации, нет структуры.
+
+**`@ConfigurationProperties(prefix = "app")`.** Биндит **целый блок properties** в Java-объект:
+```java
+@ConfigurationProperties(prefix = "app")
+public record AppProps(String name, int port, List<String> admins) {}
+```
+Плюсы — type-safe, поддержка relaxed binding (`app.max-retries` = `app.maxRetries` = `APP_MAX_RETRIES`), валидация через `@Validated`, IDE-поддержка (при добавлении `spring-boot-configuration-processor`), документация в `application.yml`.
+
+**Когда что использовать.** `@Value` — для одноразового простого значения. `@ConfigurationProperties` — для всего остального. В новом коде предпочитаю только `@ConfigurationProperties`.
+
+## Порядок загрузки properties — иерархия, которую стоит запомнить
+
+Spring Boot читает конфигурацию из множества источников и **перекрывает** одни другими по приоритету. Снизу вверх (позднее перекрывает раннее):
+
+1. `application.yml` / `application.properties` в classpath.
+2. Profile-specific: `application-{profile}.yml`.
+3. `application.yml` вне jar (из текущей директории).
+4. OS environment variables (`SPRING_DATASOURCE_URL`).
+5. Java system properties (`-Dspring.datasource.url=...`).
+6. Command-line arguments (`--spring.datasource.url=...`).
+7. `@TestPropertySource` в тестах.
+
+Это позволяет: базовая конфигурация в jar, prod-override через env в Kubernetes, локальный override через `-D` параметры.
+
+**Важно для Docker/K8s.** В контейнере обычно используют env vars: `SPRING_DATASOURCE_PASSWORD=${SECRET}`. Relaxed binding делает `SPRING_DATASOURCE_PASSWORD` эквивалентным `spring.datasource.password`.
+
+## Spring Security 6 — как работает SecurityFilterChain
+
+Security — это цепочка HTTP-фильтров, которые по очереди обрабатывают запрос. Раньше конфиг был через `WebSecurityConfigurerAdapter` (deprecated). Сейчас — через bean типа `SecurityFilterChain`:
+```java
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    return http
+        .csrf(csrf -> csrf.disable())                      // для stateless JWT API
+        .sessionManagement(s -> s.sessionCreationPolicy(STATELESS))
+        .authorizeHttpRequests(a -> a
+            .requestMatchers("/public/**").permitAll()
+            .requestMatchers("/admin/**").hasRole("ADMIN")
+            .anyRequest().authenticated())
+        .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()))
+        .build();
+}
+```
+
+**Что происходит с каждым запросом:**
+1. `SecurityContextPersistenceFilter` — загружает контекст (из session или пусто для stateless).
+2. Authentication filters — извлекают credentials (JWT из header, cookie, Basic Auth).
+3. `FilterSecurityInterceptor` — проверяет правила доступа.
+4. Ваш controller — только если авторизация прошла.
+
+**Method-level security (`@PreAuthorize`, `@PostAuthorize`)** работает через AOP — создаётся прокси, перед вызовом метода проверяется SpEL-выражение `@PreAuthorize("hasRole('ADMIN') and #userId == authentication.principal.id")`. Мощно, но помните об AOP-ловушках (self-invocation).
+
+
