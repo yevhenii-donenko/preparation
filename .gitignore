@@ -1,0 +1,27 @@
+# Logs / OS
+.DS_Store
+*.log
+*.bak
+*.swp
+
+# Editor
+.vscode/
+.idea/
+*.iml
+
+# Node / build (future)
+node_modules/
+dist/
+.cache/
+
+# Local serving artifacts
+/tmp/
+.python-version
+
+# GCP / secrets
+*.json.bak
+service-account*.json
+.gcloudignore
+
+# Memory artifacts (chat tooling)
+.copilot/

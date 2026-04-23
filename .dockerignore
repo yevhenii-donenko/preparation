@@ -1,0 +1,15 @@
+# Ignore noise from Docker build context
+.git
+.gitignore
+.vscode
+.idea
+**/.DS_Store
+**/node_modules
+
+# Tests / scratch
+notes/.draft
+*.bak
+*.swp
+
+# Don't ship Mac metadata
+**/__MACOSX

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Codecademia — premium learning for engineers</title>
+  <meta name="description" content="Premium online theory hub and interview prep for software engineers. Java, with more languages coming." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b8def'/><text x='16' y='22' text-anchor='middle' font-family='Inter,sans-serif' font-weight='800' font-size='18' fill='white'>C</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:ital,wght@0,500;0,600;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css" id="hljs-light" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css" id="hljs-dark" disabled />
+  <link rel="stylesheet" href="./assets/styles.css" />
+</head>
+<body>
+  <div class="bg-deco" aria-hidden="true">
+    <div class="bg-orb bg-orb-a"></div>
+    <div class="bg-orb bg-orb-b"></div>
+    <div class="bg-orb bg-orb-c"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <div class="progress-bar" id="progressBar"></div>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <button id="menuToggle" class="icon-btn icon-btn-ghost" aria-label="Menu">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+      </button>
+      <a class="brand" href="#/">
+        <span class="brand-mark">
+          <svg viewBox="0 0 36 36" width="32" height="32" aria-hidden="true">
+            <defs>
+              <linearGradient id="brandGrad" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="#5b8def"/>
+                <stop offset=".55" stop-color="#7b6ef6"/>
+                <stop offset="1" stop-color="#a855f7"/>
+              </linearGradient>
+            </defs>
+            <rect x="2" y="2" width="32" height="32" rx="9" fill="url(#brandGrad)"/>
+            <path d="M11 13h8M11 18h14M11 23h10" stroke="white" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="brand-text">
+          <span class="brand-title">Codecademia</span>
+          <span class="brand-sub" data-i18n="brand.tag">premium engineering theory</span>
+        </span>
+      </a>
+
+      <nav class="topnav" aria-label="Primary">
+        <a href="#/" class="topnav-link" data-route-link="home" data-i18n="nav.home">Главная</a>
+        <a href="#/courses" class="topnav-link" data-route-link="courses" data-i18n="nav.courses">Курсы</a>
+        <a href="#/roadmap" class="topnav-link" data-route-link="roadmap" data-i18n="nav.roadmap">Roadmap</a>
+        <a href="#/about" class="topnav-link" data-route-link="about" data-i18n="nav.about">О проекте</a>
+      </nav>
+
+      <div class="spacer"></div>
+
+      <button id="paletteBtn" class="palette-trigger" aria-label="Open command palette">
+        <svg viewBox="0 0 24 24" width="14" height="14"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M21 21l-4.3-4.3m1.3-5.7a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"/></svg>
+        <span data-i18n="nav.search">Поиск</span>
+        <kbd>⌘K</kbd>
+      </button>
+
+      <div class="lang-switch" role="group" aria-label="Language">
+        <button data-lang="ru" class="lang-btn">RU</button>
+        <button data-lang="uk" class="lang-btn">UK</button>
+        <button data-lang="en" class="lang-btn">EN</button>
+      </div>
+
+      <button id="themeToggle" class="icon-btn" aria-label="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 3v2m0 14v2M5 12H3m18 0h-2m-1.6-6.4l-1.4 1.4M7 17l-1.4 1.4M7 7L5.6 5.6M17 17l1.4 1.4"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+
+      <a href="#/courses" class="btn btn-primary btn-cta" data-i18n="nav.cta">Начать учиться</a>
+    </div>
+  </header>
+
+  <div id="view"></div>
+
+  <footer class="site-foot">
+    <div class="foot-inner">
+      <div class="foot-brand">
+        <strong>Codecademia</strong>
+        <span data-i18n="foot.copy">© 2026 · Premium engineering knowledge hub</span>
+      </div>
+      <nav class="foot-links">
+        <a href="#/" data-i18n="nav.home">Главная</a>
+        <a href="#/courses" data-i18n="nav.courses">Курсы</a>
+        <a href="#/roadmap" data-i18n="nav.roadmap">Roadmap</a>
+        <a href="#/about" data-i18n="nav.about">О проекте</a>
+      </nav>
+    </div>
+  </footer>
+
+  <button id="toTop" class="to-top hidden" aria-label="Back to top">
+    <svg viewBox="0 0 24 24" width="20" height="20"><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m-7 7l7-7 7 7"/></svg>
+  </button>
+
+  <!-- Command Palette -->
+  <div id="palette" class="palette hidden" role="dialog" aria-modal="true">
+    <div class="palette-backdrop"></div>
+    <div class="palette-box">
+      <input id="paletteInput" type="text" autocomplete="off" spellcheck="false" placeholder="Поиск курсов и тем…" />
+      <ul id="paletteResults" class="palette-results"></ul>
+      <div class="palette-foot">
+        <kbd>↑</kbd><kbd>↓</kbd> навигация · <kbd>↵</kbd> открыть · <kbd>Esc</kbd> закрыть
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/java.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/xml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/sql.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/properties.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/dockerfile.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/kotlin.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/typescript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/plaintext.min.js"></script>
+  <script src="./assets/i18n.js"></script>
+  <script src="./assets/catalog.js"></script>
+  <script src="./assets/app.js"></script>
+</body>
+</html>

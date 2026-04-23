@@ -1,0 +1,44 @@
+# Build & deploy to Cloud Run with one Cloud Build step.
+# Trigger:  gcloud builds submit --config=deploy/cloudbuild.yaml --substitutions=_REGION=europe-west3,_SERVICE=java-prep
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_IMAGE}
+      - -f
+      - Dockerfile
+      - .
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: [push, '${_IMAGE}']
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_IMAGE}
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --port=8080
+      - --cpu=1
+      - --memory=256Mi
+      - --min-instances=0
+      - --max-instances=3
+      - --concurrency=80
+      - --timeout=30
+      - --set-env-vars=PORT=8080
+images:
+  - ${_IMAGE}
+
+substitutions:
+  _REGION: europe-west3
+  _SERVICE: java-prep
+  _IMAGE: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/java-prep/site:${SHORT_SHA}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
